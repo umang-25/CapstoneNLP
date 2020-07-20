@@ -1,0 +1,10 @@
+name: predictapp
+title:
+username:
+account: umang25
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2590185
+bundleId: 3409753
+url: https://umang25.shinyapps.io/predictapp/
+when: 1595193286.64236

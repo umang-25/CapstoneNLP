@@ -1,0 +1,163 @@
+---
+title: "Milestone_Report"
+output: html_document
+---
+
+# Executive Summary
+The capstone project aims to demonstrate the ability to process and analyze large volumes of unstructured text. As a final deliverable, the data scientist will develop an algorithm that predicts the next word in a provided text, similar to the predictive text functions found on today’s modern smart phones.
+
+This report demonstrates the data scientist’s ability to successfully import the text data into R, provide basic summary statistics, and explain the planned steps for producing an algorithm for text prediction.
+
+
+Libraries used:
+```{r echo =TRUE}
+library(ngram)
+library(R.utils)
+library(tm)
+library(SnowballC)
+library(stringr)
+library(ggplot2)
+library(dplyr)
+```
+
+
+# Getting data
+We'll begin this by downloading the data
+```{r echo=TRUE} 
+        fileurl <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip"
+        filename <- "Coursera-SwiftKey.zip"
+        if(!file.exists(filename))
+        {
+                download.file(fileurl,destfile = filename)
+        }
+
+        if(!file.exists("final")) unzip(filename)
+```
+
+# Creating data corpus
+Here we load the data into the local environment. We could alternatively just create a corpus using the corpus function but that would be significantly difficult to handle because of the sheer size of data.
+
+```{r echo=TRUE}
+        twitter <- readLines("./final/en_us/en_US.twitter.txt", skipNul = T)
+        blogs <- readLines("./final/en_us/en_US.blogs.txt", skipNul = T)
+        news <- readLines("./final/en_us/en_US.news.txt", skipNul = T)
+        complete <- c(blogs,news,twitter)
+```
+                
+# Counting the number of words and lines
+
+```{r echo=TRUE}
+        word.count <- function(my.list) {sum(str_count(my.list, "\\S+"),na.rm = T ) }
+        df <- data.frame(text.source = c("blogs", "twitter", "news"), line.count = NA, word.count = NA)
+        my.list <- list(blog = blogs, twitter = twitter, news = news)
+        # get line count and word count for each Corpura
+        df$line.count <- sapply(my.list, length)
+        df$word.count <- sapply(my.list, word.count)
+        df
+```
+
+This data table shows the line count and the word count of all the three files. However, we cannot show all the individual word counts or line counts because there over 3 million entries.
+
+# Data Exploration
+
+Since we cannot explore the data as a whole we'll use the principals from the regression models specifically the idea of sampling to represent the population.
+So we'll use 100,000 random samples as a way to explore the population
+
+```{r echo=TRUE}
+
+#Random selection
+
+        set.seed(230)
+        numbers <- sample(1:length(complete),100000)
+        selected.data <- as.vector(complete[numbers])
+        Corpus <- VCorpus(VectorSource((selected.data)))
+```
+
+Now we'll clean the data
+
+```{r echo=TRUE}
+#cleaning the data(Preprocessing)
+        toSpace <- content_transformer(function(x,pattern){ return(gsub(pattern," ",x))})
+
+#Removing unimportant characters
+        Corpus <- tm_map(Corpus,toSpace,"-") 
+        Corpus <- tm_map(Corpus,toSpace,":") 
+        Corpus <- tm_map(Corpus,toSpace,"`") 
+        Corpus <- tm_map(Corpus,toSpace,"'")
+        Corpus <- tm_map(Corpus,toSpace," -") 
+        Corpus <- tm_map(Corpus,toSpace,"â€œ")
+        Corpus <- tm_map(Corpus,toSpace,"â€™")
+        Corpus <- tm_map(Corpus,toSpace,"â€˜")
+        Corpus <- tm_map(Corpus,toSpace,"â€¦")
+        Corpus <- tm_map(Corpus,toSpace,"â€")
+        
+#Removing Punctuation
+        Corpus <- tm_map(Corpus, removePunctuation)
+
+#Transform to lowercase
+        Corpus <- tm_map(Corpus,content_transformer(tolower))
+
+#Remove numbers
+        Corpus <- tm_map(Corpus,removeNumbers)
+        
+#We also have to remove "profane" words
+        filename2 <- "profane.csv"
+        if(!file.exists(filename2)){
+                download.file("http://www.bannedwordlist.com/lists/swearWords.csv",destfile=filename2,)
+        }
+        profanewords <- read.csv(filename2,header = FALSE)
+        profanewords <- as.vector(profanewords)
+        Corpus <- tm_map(Corpus,removeWords,profanewords)        
+        
+#Remove white spaces
+        Corpus <- tm_map(Corpus,stripWhitespace)
+
+#Document Term Matrix
+        
+        dtm <- DocumentTermMatrix(Corpus)
+        
+#Removing highly in consequent words
+#there are whole lot of words and a 100,000 observations, finding frequencies can't be done all at once
+#let's find the best number to formulate these loops
+        
+        numberwords<-length(dtm$dimnames[2][[1]])
+        loopnumber <- function(x){
+                i=1000
+                while(i <1100)
+                if(x%%i!=0){
+                        i=i+1
+                }
+                else{
+                        return(i)
+                }
+        }
+        index <- loopnumber(numberwords)
+        loopend <- numberwords / index
+        endingindex <- 0
+        frequencymat <- matrix(NA,numberwords,1)
+        for(i in 1:loopend){
+        startindex <- i + endingindex
+        endingindex<- i*index
+        frequencymat[startindex:endingindex] <- colSums(as.matrix(dtm[,startindex:endingindex])) 
+        }
+        summary(frequencymat)        
+        frequencydat <- data.frame(words = dtm$dimnames[2],frequency = frequencymat)
+        
+#We can plot the top 10 most frequent words
+        sortfrequncydat <- frequencydat[complete.cases(frequencydat),]
+        sortfrequncydat <- sortfrequncydat %>% arrange(desc(frequency))
+        topfrequency <- head(sortfrequncydat,15)
+        bottomfrequency <- tail(sortfrequncydat,15)
+        
+        g <- ggplot(data = topfrequency,aes(x=Terms,y=frequency))
+        g2 <- ggplot(data = bottomfrequency,aes(x=Terms,y=frequency))
+        g + geom_bar(stat="identity")
+        g2 +  geom_bar(stat = "identity")
+```    
+
+This makes sense because words like "the" "and" are the most commonly used and should be recommended the most in our prediction system and the words at the bottom really don't make too much sense and as we build our model these will have a lower significance.
+
+# Goals and Algorithm
+
+This data sufficiently gives us enough insight into our data. We have tokenised the data into a document term matrix and observed what kind of words should we see the most in our prediction of our system and which we shouldn't. Now for the algorithm or the idea on which this project will be dividing the corpus on the into n-grams and then on the basis which n-gram model, for example unigram or bigram or trigram, gives the best prediction result, I'll choose that as the prediction model.
+
